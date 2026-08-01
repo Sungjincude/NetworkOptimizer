@@ -1,27 +1,52 @@
 <#
 .SYNOPSIS
-    Installer for the Network Optimizer utility.
+    Installer for Network Optimizer – downloads all modules from a remote host.
 .DESCRIPTION
-    Downloads all required modules from a remote host and runs the main application.
-    Designed to be invoked via: irm https://HOST/install.ps1 | iex
+    Accepts a -BaseUrl parameter, or uses $env:NETOPT_BASEURL, or prompts interactively.
+    Designed for use with GitHub raw content or any web server.
 .PARAMETER BaseUrl
-    The base URL where the scripts are hosted. Defaults to "https://HOST" (must be overridden).
+    The base URL where the script files are hosted (e.g., "https://raw.githubusercontent.com/user/repo/main").
 .PARAMETER Destination
-    The folder where the utility will be installed. Defaults to "$env:ProgramFiles\NetworkOptimizer".
+    Installation folder (default: "$env:ProgramFiles\NetworkOptimizer").
+.PARAMETER Silent
+    Suppresses prompts; uses defaults or fails if BaseUrl not found.
 .EXAMPLE
-    irm https://my.server/install.ps1 | iex
+    .\Install.ps1 -BaseUrl "https://my.server/NetworkOptimizer"
+.EXAMPLE
+    $env:NETOPT_BASEURL = "https://raw.githubusercontent.com/Sungjincude/NetworkOptimizer/main"
+    .\Install.ps1
 .NOTES
     Requires PowerShell 5.1 or later.
 #>
 
 [CmdletBinding()]
 param(
-    [string]$BaseUrl = "https://raw.githubusercontent.com//Sungjincude/NetworkOptimizer/main/Install.ps1",
-    [string]$Destination = "$env:ProgramFiles\NetworkOptimizer"
+    [string]$BaseUrl,
+    [string]$Destination = "$env:ProgramFiles\NetworkOptimizer",
+    [switch]$Silent
 )
 
-# Stop on errors, but we'll handle them gracefully
 $ErrorActionPreference = "Stop"
+
+# Determine BaseUrl if not provided
+if (-not $BaseUrl) {
+    # Check environment variable
+    $BaseUrl = $env:NETOPT_BASEURL
+}
+
+if (-not $BaseUrl -and -not $Silent) {
+    Write-Host "Please enter the base URL where the NetworkOptimizer files are hosted:" -ForegroundColor Cyan
+    Write-Host "Example: https://raw.githubusercontent.com/username/repo/main" -ForegroundColor Gray
+    $BaseUrl = Read-Host "Base URL"
+}
+
+if (-not $BaseUrl) {
+    Write-Error "BaseUrl not provided and could not be determined. Set -BaseUrl or define `$env:NETOPT_BASEURL."
+    exit 1
+}
+
+# Ensure BaseUrl ends without trailing slash
+$BaseUrl = $BaseUrl.TrimEnd('/')
 
 # Files to download
 $Files = @(
@@ -35,7 +60,7 @@ $Files = @(
     "Validation.ps1"
 )
 
-# Create destination if it doesn't exist
+# Create destination if not exists
 if (-not (Test-Path $Destination)) {
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
 }
@@ -53,7 +78,7 @@ foreach ($File in $Files) {
     }
 }
 
-# Change to the destination and run Core.ps1
+# Run the main script
 Push-Location $Destination
 try {
     & .\Core.ps1
