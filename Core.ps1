@@ -66,7 +66,7 @@ $script:cachedDriverDate = $null
 $script:cachedLinkSpeed = $null
 $script:cachedInterfaceDescription = $null
 
-# Cached property lookup table (built per adapter)
+# Cached property lookup table
 $script:propertyLookup = $null
 #endregion
 
@@ -74,12 +74,8 @@ $script:propertyLookup = $null
 function Initialize-LoggerEx {
     <#
     .SYNOPSIS
-        Initializes the logging system with configurable path and permission handling.
-    .DESCRIPTION
-        Directly sets the log file path without calling the external Initialize-Logger.
-        This avoids duplication and array path issues.
-    .OUTPUTS
-        The full path to the log file.
+        Initializes logging – sets $script:logFilePath directly.
+        Does NOT call the external Initialize-Logger to avoid duplication.
     #>
     param()
 
@@ -89,7 +85,7 @@ function Initialize-LoggerEx {
         Join-Path $scriptRoot "Logs"
     }
 
-    # Ensure directory exists
+    # Create directory if missing
     if (-not (Test-Path $basePath)) {
         try {
             New-Item -ItemType Directory -Path $basePath -Force -ErrorAction Stop | Out-Null
@@ -117,6 +113,7 @@ function Initialize-LoggerEx {
 
     $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
     $logFile = Join-Path $basePath "NetworkOptimizer_$timestamp.log"
+    # Set the global log path – single string, not array
     $script:logFilePath = $logFile
     $header = "=== Network Optimizer Log ===`r`nStarted at $(Get-Date)`r`n"
     $header | Out-File -FilePath $logFile -Encoding utf8 -ErrorAction SilentlyContinue
@@ -137,10 +134,6 @@ function Initialize-LoggerEx {
 }
 
 function Initialize-SystemInfo {
-    <#
-    .SYNOPSIS
-        Caches Windows and PowerShell version information at startup.
-    #>
     $script:psVersion = $PSVersionTable.PSVersion.ToString()
     try {
         $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
@@ -155,14 +148,6 @@ function Initialize-SystemInfo {
 }
 
 function Update-CachedAdapterInfo {
-    <#
-    .SYNOPSIS
-        Updates the cached adapter information after adapter selection.
-    .DESCRIPTION
-        Retrieves vendor, driver version, etc. and stores them in script variables.
-    #>
-    param()
-
     if (-not $script:selectedAdapter) {
         $script:cachedAdapterInfo = $null
         $script:cachedVendor = $null
@@ -172,9 +157,7 @@ function Update-CachedAdapterInfo {
         $script:cachedInterfaceDescription = $null
         return
     }
-
-    $adapter = $script:selectedAdapter
-    $info = Get-AdapterInfo -Adapter $adapter
+    $info = Get-AdapterInfo -Adapter $script:selectedAdapter
     $script:cachedAdapterInfo = $info
     $script:cachedVendor = $info.Vendor
     $script:cachedDriverVersion = $info.DriverVersion
@@ -187,12 +170,6 @@ function Update-CachedAdapterInfo {
 }
 
 function Build-PropertyLookupTable {
-    <#
-    .SYNOPSIS
-        Builds a hashtable for O(1) property lookup by RegistryKeyword, DisplayName, and aliases.
-    .DESCRIPTION
-        This table is used by Resolve-Property for fast resolution.
-    #>
     param(
         [array]$Properties
     )
@@ -202,13 +179,11 @@ function Build-PropertyLookupTable {
         if ($keyword) { $lookup[$keyword] = $prop }
         $display = $prop.DisplayName
         if ($display) { $lookup[$display] = $prop }
-        # Also add aliases from VendorMappings
         $aliases = Get-PropertyAliases
         foreach ($key in $aliases.Keys) {
             foreach ($alias in $aliases[$key]) {
                 if ($alias -eq $keyword) {
                     $lookup[$key] = $prop
-                    # Also add specific alias if not already
                     if (-not $lookup.ContainsKey($alias)) {
                         $lookup[$alias] = $prop
                     }
@@ -222,24 +197,9 @@ function Build-PropertyLookupTable {
 
 #region Helper Functions
 function Normalize-Value {
-    <#
-    .SYNOPSIS
-        Normalizes a registry value for safe comparison, handling various types.
-    .DESCRIPTION
-        Converts the value to a canonical form: integers are kept as integers,
-        booleans (true/false, 0/1) are converted to 'true' or 'false' strings,
-        arrays are joined with commas, enumerations are converted to their integer
-        representation if possible, otherwise string. Null/empty returns $null.
-    .PARAMETER Value
-        The value to normalize.
-    .OUTPUTS
-        Normalized value as either integer, string, or $null.
-    #>
     param($Value)
-
     if ($null -eq $Value) { return $null }
     if ($Value -is [array]) {
-        # Join array elements with comma (handles multi-string values)
         $str = ($Value | ForEach-Object { $_.ToString().Trim() }) -join ','
         return $str
     }
@@ -247,41 +207,19 @@ function Normalize-Value {
         return $Value.ToString().ToLower()
     }
     if ($Value -is [enum]) {
-        # Try to get numeric value
-        try {
-            return [int]$Value
-        } catch {
-            return $Value.ToString()
-        }
+        try { return [int]$Value } catch { return $Value.ToString() }
     }
     $str = $Value.ToString().Trim()
     if ($str -eq '') { return $null }
-    # Check if it's numeric
-    if ($str -match '^\d+$') {
-        return [int]$str
-    }
-    # Check for boolean-like strings
+    if ($str -match '^\d+$') { return [int]$str }
     $lower = $str.ToLower()
     if ($lower -in @('true','false','0','1')) {
-        if ($lower -eq 'true' -or $lower -eq '1') { return 'true' }
-        else { return 'false' }
+        return ($lower -eq 'true' -or $lower -eq '1') ? 'true' : 'false'
     }
     return $str
 }
 
 function Confirm-PresetApplication {
-    <#
-    .SYNOPSIS
-        Displays a confirmation prompt before applying changes unless -Silent is used.
-    .PARAMETER AdapterName
-        Name of the adapter.
-    .PARAMETER PresetName
-        Name of the preset.
-    .PARAMETER Count
-        Number of properties to change.
-    .OUTPUTS
-        $true if user confirms or -Silent is set; otherwise $false.
-    #>
     param(
         [string]$AdapterName,
         [string]$PresetName,
@@ -297,16 +235,6 @@ function Confirm-PresetApplication {
 }
 
 function Wait-AdapterUp {
-    <#
-    .SYNOPSIS
-        Waits for an adapter to return to 'Up' status, operational, and enabled.
-    .PARAMETER AdapterName
-        Name of the adapter.
-    .PARAMETER TimeoutSeconds
-        Maximum time to wait (default 30).
-    .OUTPUTS
-        $true if adapter is up within timeout, otherwise $false.
-    #>
     param(
         [string]$AdapterName,
         [int]$TimeoutSeconds = 30
@@ -328,51 +256,7 @@ function Wait-AdapterUp {
     return $false
 }
 
-function Test-AdapterState {
-    <#
-    .SYNOPSIS
-        Verifies that an adapter exists and is not in a restarting state.
-        It will allow restart even if the adapter is temporarily disabled.
-    .PARAMETER AdapterName
-        Name of the adapter.
-    .OUTPUTS
-        $true if adapter is ready for restart, otherwise $false.
-    #>
-    param(
-        [string]$AdapterName
-    )
-    $adapter = Get-NetAdapter -Name $AdapterName -ErrorAction SilentlyContinue
-    if (-not $adapter) {
-        Write-Log "Adapter '$AdapterName' not found." -Level Error
-        return $false
-    }
-    # Warn if disabled but still allow restart
-    if (-not $adapter.NetEnabled) {
-        Write-Log "Adapter '$AdapterName' is currently disabled. Attempting restart anyway." -Level Warning
-    }
-    # Check if already restarting
-    if ($adapter.Status -eq 'Restarting') {
-        Write-Log "Adapter '$AdapterName' is already restarting." -Level Warning
-        return $false
-    }
-    return $true
-}
-
 function Log-Exception {
-    <#
-    .SYNOPSIS
-        Logs detailed exception information.
-    .PARAMETER Exception
-        The exception object.
-    .PARAMETER Property
-        The property being processed.
-    .PARAMETER RegistryKeyword
-        The registry keyword.
-    .PARAMETER AdapterName
-        The adapter name.
-    .PARAMETER RequestedValue
-        The value attempted.
-    #>
     param(
         [System.Exception]$Exception,
         [string]$Property = $null,
@@ -386,9 +270,7 @@ function Log-Exception {
     if ($AdapterName) { $msg += " on adapter '$AdapterName'" }
     if ($RequestedValue -ne $null) { $msg += " with value '$RequestedValue'" }
     $msg += ": Type=$($Exception.GetType().FullName), Message=$($Exception.Message)"
-    if ($Exception.InnerException) {
-        $msg += ", Inner=$($Exception.InnerException.Message)"
-    }
+    if ($Exception.InnerException) { $msg += ", Inner=$($Exception.InnerException.Message)" }
     Write-Log $msg -Level Error
     if ($VerbosePreference -eq 'Continue') {
         Write-Verbose "Stack trace: $($Exception.StackTrace)"
@@ -428,25 +310,17 @@ function Show-Menu {
 }
 
 function Select-Adapter {
-    <#
-    .SYNOPSIS
-        Displays an interactive menu to select a physical adapter, or auto-selects if only one.
-    .OUTPUTS
-        The selected NetAdapter object, or $null if none.
-    #>
     $adapters = Get-PhysicalNetworkAdapters -IncludeActiveOnly
     if (-not $adapters) {
         Write-Error "No active physical network adapters found."
         return $null
     }
-
     $adapterArray = @($adapters)
     if ($adapterArray.Count -eq 1) {
         $adapter = $adapterArray[0]
         Write-Host "Auto-selected the only active physical adapter: $($adapter.Name)" -ForegroundColor Green
         return $adapter
     }
-
     Write-Host "Multiple active physical adapters found. Please select one:" -ForegroundColor Cyan
     $i = 1
     $adapterList = @()
@@ -468,17 +342,6 @@ function Select-Adapter {
 
 #region Core Functions
 function Apply-Preset {
-    <#
-    .SYNOPSIS
-        Applies a preset to the currently selected adapter.
-    .DESCRIPTION
-        Retrieves advanced properties, backs up, applies changes, validates, and restarts if needed.
-        Displays progress and summary.
-    .PARAMETER PresetName
-        Name of the preset (Gaming, Balanced, Throughput).
-    .PARAMETER Adapter
-        Optional NetAdapter object. If not provided, uses the global $script:selectedAdapter.
-    #>
     param(
         [Parameter(Mandatory)]
         [string]$PresetName,
@@ -495,22 +358,18 @@ function Apply-Preset {
     Write-Log "Applying preset '$PresetName' to adapter '$adapterName'" -Level Info
     if ($VerbosePreference -eq 'Continue') { Write-Verbose "Preset '$PresetName' selected for adapter '$adapterName'." }
 
-    # Get all advanced properties for the adapter
     $properties = Get-NetAdapterAdvancedProperty -Name $adapterName -ErrorAction Stop
     if ($VerbosePreference -eq 'Continue') { Write-Verbose "Retrieved $($properties.Count) advanced properties." }
 
-    # Build lookup table for fast property resolution
     $script:propertyLookup = Build-PropertyLookupTable -Properties $properties
     if ($VerbosePreference -eq 'Continue') { Write-Verbose "Property lookup table built with $($script:propertyLookup.Count) entries." }
 
-    # Backup before applying
     $backupFile = Backup-AdapterSettings -AdapterName $adapterName -Properties $properties
     if ($backupFile) {
         Write-Log "Backup saved to $backupFile" -Level Info
         if ($VerbosePreference -eq 'Continue') { Write-Verbose "Backup file: $backupFile" }
     }
 
-    # Get the preset definition
     $preset = Get-Preset -Name $PresetName
     if (-not $preset) {
         Write-Error "Preset '$PresetName' not found."
@@ -518,16 +377,13 @@ function Apply-Preset {
         return
     }
 
-    # Count properties that are actually supported (to show user)
     $supportedCount = 0
     $presetKeys = @($preset.Keys)
     foreach ($key in $presetKeys) {
-        $prop = Resolve-Property -PropertyName $key -UseCache
-        if ($prop) { $supportedCount++ }
+        if (Resolve-Property -PropertyName $key -UseCache) { $supportedCount++ }
     }
     if ($VerbosePreference -eq 'Continue') { Write-Verbose "Supported properties count: $supportedCount out of $($presetKeys.Count) in preset." }
 
-    # Confirmation
     if (-not (Confirm-PresetApplication -AdapterName $adapterName -PresetName $PresetName -Count $supportedCount)) {
         Write-Host "Operation cancelled by user." -ForegroundColor Yellow
         $script:exitCode = 2
@@ -536,7 +392,6 @@ function Apply-Preset {
 
     Write-Host "Applying preset... (progress will be logged)" -ForegroundColor Cyan
 
-    # Apply each property with progress bar
     $results = @()
     $restartRequired = $false
     $successCount = 0
@@ -552,14 +407,7 @@ function Apply-Preset {
         if (-not $prop) {
             Write-Log "Property '$key' not supported on this adapter. Skipping." -Level Warning
             if ($VerbosePreference -eq 'Continue') { Write-Verbose "Property '$key' not found in lookup table." }
-            $results += [PSCustomObject]@{
-                Property      = $key
-                OldValue      = $null
-                NewValue      = $null
-                Status        = "SKIPPED"
-                Reason        = "Not supported"
-                ElapsedMs     = 0
-            }
+            $results += [PSCustomObject]@{ Property = $key; OldValue = $null; NewValue = $null; Status = "SKIPPED"; Reason = "Not supported"; ElapsedMs = 0 }
             continue
         }
 
@@ -567,38 +415,24 @@ function Apply-Preset {
         $oldValue = $prop.RegistryValue
         if ($VerbosePreference -eq 'Continue') { Write-Verbose "Resolved '$key' to keyword '$keyword', current value '$oldValue'." }
 
-        # Validate value if possible
         $validValues = $prop.ValidRegistryValues
-        if (-not $validValues) {
-            $validValues = $prop.ValidDisplayValues
-        }
+        if (-not $validValues) { $validValues = $prop.ValidDisplayValues }
         if ($validValues) {
             $normalizedDesired = Normalize-Value $desiredValue
             $found = $false
             foreach ($v in $validValues) {
-                if ((Normalize-Value $v) -eq $normalizedDesired) {
-                    $found = $true
-                    break
-                }
+                if ((Normalize-Value $v) -eq $normalizedDesired) { $found = $true; break }
             }
             if (-not $found) {
                 Write-Log "Value '$desiredValue' is not in valid list for '$keyword'. Skipping." -Level Warning
                 if ($VerbosePreference -eq 'Continue') { Write-Verbose "Value '$desiredValue' not in valid values: $($validValues -join ', ')" }
-                $results += [PSCustomObject]@{
-                    Property      = $key
-                    OldValue      = $oldValue
-                    NewValue      = $desiredValue
-                    Status        = "SKIPPED"
-                    Reason        = "Invalid value (not in ValidRegistryValues)"
-                    ElapsedMs     = 0
-                }
+                $results += [PSCustomObject]@{ Property = $key; OldValue = $oldValue; NewValue = $desiredValue; Status = "SKIPPED"; Reason = "Invalid value (not in ValidRegistryValues)"; ElapsedMs = 0 }
                 continue
             }
         } else {
             if ($VerbosePreference -eq 'Continue') { Write-Verbose "No validation info available for '$keyword'; attempting change." }
         }
 
-        # Attempt to set
         $start = Get-Date
         try {
             Set-NetAdapterAdvancedProperty -Name $adapterName -RegistryKeyword $keyword -RegistryValue $desiredValue -ErrorAction Stop
@@ -618,7 +452,6 @@ function Apply-Preset {
         }
         $elapsed = (Get-Date) - $start
 
-        # Validate
         if ($success) {
             $newProp = Get-NetAdapterAdvancedProperty -Name $adapterName -RegistryKeyword $keyword -ErrorAction SilentlyContinue
             $oldNormalized = Normalize-Value $oldValue
@@ -641,52 +474,45 @@ function Apply-Preset {
         }
 
         $results += [PSCustomObject]@{
-            Property      = $key
-            OldValue      = $oldValue
-            NewValue      = $desiredValue
-            Status        = $status
-            Reason        = $reason
-            ElapsedMs     = [math]::Round($elapsed.TotalMilliseconds, 2)
+            Property = $key
+            OldValue = $oldValue
+            NewValue = $desiredValue
+            Status = $status
+            Reason = $reason
+            ElapsedMs = [math]::Round($elapsed.TotalMilliseconds, 2)
         }
     }
 
-    # Clear progress bar
     Write-Progress -Activity "Applying Preset" -Completed
 
-    # Log results
     foreach ($res in $results) {
         Write-Log "Property: $($res.Property), Old: $($res.OldValue), New: $($res.NewValue), Status: $($res.Status), Reason: $($res.Reason), Elapsed: $($res.ElapsedMs)ms" -Level Info
     }
 
-    # Display summary
     Write-Host "`nPreset application summary:" -ForegroundColor Cyan
     $results | Format-Table -Property Property, OldValue, NewValue, Status, Reason, ElapsedMs -AutoSize
 
-    # Update last applied preset
     if ($successCount -gt 0) {
         $script:lastAppliedPreset = $PresetName
     }
 
-    # Restart adapter only if needed
+    # --- RESTART LOGIC ---
     if ($restartRequired) {
         Write-Log "Restarting adapter '$adapterName' to apply changes..." -Level Info
         Write-Host "Restarting adapter..." -ForegroundColor Yellow
-        if (Test-AdapterState -AdapterName $adapterName) {
-            try {
-                Restart-NetAdapter -Name $adapterName -Confirm:$false -ErrorAction Stop
-                if (Wait-AdapterUp -AdapterName $adapterName) {
-                    Write-Host "Adapter restarted successfully and is up." -ForegroundColor Green
-                } else {
-                    Write-Warning "Adapter restart completed but did not return to 'Up' within 30 seconds. A system reboot may be required."
-                    $script:exitCode = 4
-                }
-            } catch {
-                Log-Exception -Exception $_.Exception -AdapterName $adapterName
-                Write-Host "Failed to restart adapter. Please restart manually." -ForegroundColor Red
-                $script:exitCode = 1
+        # Attempt restart regardless of current state – we'll catch any error
+        try {
+            Restart-NetAdapter -Name $adapterName -Confirm:$false -ErrorAction Stop
+            if (Wait-AdapterUp -AdapterName $adapterName) {
+                Write-Host "Adapter restarted successfully and is up." -ForegroundColor Green
+            } else {
+                Write-Warning "Adapter restart completed but did not return to 'Up' within 30 seconds. A system reboot may be required."
+                $script:exitCode = 4
             }
-        } else {
-            Write-Warning "Adapter is not in a restartable state. Manual restart may be needed."
+        } catch {
+            Log-Exception -Exception $_.Exception -AdapterName $adapterName
+            Write-Host "Failed to restart adapter. Please restart manually." -ForegroundColor Red
+            $script:exitCode = 1
         }
     } else {
         Write-Log "No successful property changes; adapter restart not required." -Level Info
