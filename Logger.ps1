@@ -10,9 +10,11 @@ $script:logFilePath = $null
 function Initialize-Logger {
     <#
     .SYNOPSIS
-        Initializes the logging system.
+        Initializes the logging system and returns the log file path.
     .PARAMETER LogPath
         The directory where log files will be stored.
+    .OUTPUTS
+        The full path to the new log file.
     #>
     param(
         [string]$LogPath = "$env:ProgramData\NetworkOptimizer\Logs"
@@ -26,11 +28,14 @@ function Initialize-Logger {
     $logFile = Join-Path $LogPath "NetworkOptimizer_$timestamp.log"
     $script:logFilePath = $logFile
 
-    # Write header
-    $header = "=== Network Optimizer Log ===`r`nStarted at $(Get-Date)`r`n"
-    $header | Out-File -FilePath $logFile -Encoding utf8
+    # Write the header (only on first initialization)
+    if (-not (Test-Path $logFile)) {
+        $header = "=== Network Optimizer Log ===`r`nStarted at $(Get-Date)`r`n"
+        $header | Out-File -FilePath $logFile -Encoding utf8
+    }
 
-    Write-Output "Log file: $logFile"
+    # Use Write-Host for user feedback (does not pollute output stream)
+    Write-Host "Log file: $logFile" -ForegroundColor Gray
     return $logFile
 }
 
@@ -51,18 +56,25 @@ function Write-Log {
     )
 
     if (-not $script:logFilePath) {
-        # Fallback: create log in temp
-        $script:logFilePath = Initialize-Logger -LogPath "$env:TEMP\NetworkOptimizer\Logs"
+        # Call Initialize-Logger without capturing its output
+        Initialize-Logger -LogPath "$env:TEMP\NetworkOptimizer\Logs"
     }
 
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
     $entry = "[$timestamp] [$Level] $Message"
-    # Write to console with color
+
+    # Console output
     switch ($Level) {
         'Info'    { Write-Host $entry -ForegroundColor White }
         'Warning' { Write-Host $entry -ForegroundColor Yellow }
         'Error'   { Write-Host $entry -ForegroundColor Red }
     }
+
     # Append to log file
-    Add-Content -Path $script:logFilePath -Value $entry
+    try {
+        Add-Content -Path $script:logFilePath -Value $entry -ErrorAction Stop
+    } catch {
+        Write-Warning "Failed to write to log file: $_"
+        # Fallback: write to console only
+    }
 }
