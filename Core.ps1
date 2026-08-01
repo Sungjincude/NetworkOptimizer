@@ -214,7 +214,12 @@ function Normalize-Value {
     if ($str -match '^\d+$') { return [int]$str }
     $lower = $str.ToLower()
     if ($lower -in @('true','false','0','1')) {
-        return ($lower -eq 'true' -or $lower -eq '1') ? 'true' : 'false'
+        # PowerShell 5.1 compatible: use if/else instead of ternary
+        if ($lower -eq 'true' -or $lower -eq '1') {
+            return 'true'
+        } else {
+            return 'false'
+        }
     }
     return $str
 }
