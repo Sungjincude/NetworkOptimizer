@@ -21,4 +21,4 @@
 Run the following command in an elevated PowerShell console:
 
 ```powershell
-irm https://HOST/install.ps1 | iex
+irm https://raw.githubusercontent.com//Sungjincude/NetworkOptimizer/main/Install.ps1 | iex
