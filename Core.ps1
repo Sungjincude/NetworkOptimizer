@@ -76,9 +76,8 @@ function Initialize-LoggerEx {
     .SYNOPSIS
         Initializes the logging system with configurable path and permission handling.
     .DESCRIPTION
-        Sets the global log file path. Defaults to "$scriptRoot\Logs" if not overridden.
-        If the directory is not writable, falls back to "$env:TEMP\NetworkOptimizer\Logs".
-        If -Transcript is used, also starts a PowerShell transcript.
+        Directly sets the log file path without calling the external Initialize-Logger.
+        This avoids duplication and array path issues.
     .OUTPUTS
         The full path to the log file.
     #>
@@ -118,13 +117,9 @@ function Initialize-LoggerEx {
 
     $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
     $logFile = Join-Path $basePath "NetworkOptimizer_$timestamp.log"
-    # Call the original logger initializer from Logger.ps1
-    Initialize-Logger -LogPath $basePath
-    # Override the file name to include timestamp
     $script:logFilePath = $logFile
     $header = "=== Network Optimizer Log ===`r`nStarted at $(Get-Date)`r`n"
     $header | Out-File -FilePath $logFile -Encoding utf8 -ErrorAction SilentlyContinue
-    # Use Write-Host to avoid polluting the output stream
     Write-Host "Log file: $logFile" -ForegroundColor Gray
 
     # Start transcript if requested
@@ -304,7 +299,7 @@ function Confirm-PresetApplication {
 function Wait-AdapterUp {
     <#
     .SYNOPSIS
-        Waits for an adapter to return to 'Up' status and operational up.
+        Waits for an adapter to return to 'Up' status, operational, and enabled.
     .PARAMETER AdapterName
         Name of the adapter.
     .PARAMETER TimeoutSeconds
@@ -321,7 +316,7 @@ function Wait-AdapterUp {
     $start = Get-Date
     do {
         $adapter = Get-NetAdapter -Name $AdapterName -ErrorAction SilentlyContinue
-        if ($adapter -and $adapter.Status -eq 'Up' -and $adapter.OperationalStatus -eq 'Up') {
+        if ($adapter -and $adapter.Status -eq 'Up' -and $adapter.OperationalStatus -eq 'Up' -and $adapter.NetEnabled -eq $true) {
             Write-Log "Adapter is up after $([math]::Round(((Get-Date)-$start).TotalSeconds,1)) seconds." -Level Info
             if ($VerbosePreference -eq 'Continue') { Write-Verbose "Adapter $AdapterName is up and operational." }
             return $true
@@ -336,7 +331,8 @@ function Wait-AdapterUp {
 function Test-AdapterState {
     <#
     .SYNOPSIS
-        Verifies that an adapter exists, is enabled, and not in a restarting state.
+        Verifies that an adapter exists and is not in a restarting state.
+        It will allow restart even if the adapter is temporarily disabled.
     .PARAMETER AdapterName
         Name of the adapter.
     .OUTPUTS
@@ -350,11 +346,11 @@ function Test-AdapterState {
         Write-Log "Adapter '$AdapterName' not found." -Level Error
         return $false
     }
+    # Warn if disabled but still allow restart
     if (-not $adapter.NetEnabled) {
-        Write-Log "Adapter '$AdapterName' is disabled." -Level Warning
-        return $false
+        Write-Log "Adapter '$AdapterName' is currently disabled. Attempting restart anyway." -Level Warning
     }
-    # Check if already restarting (status could be 'Restarting'? Not common, but we can check)
+    # Check if already restarting
     if ($adapter.Status -eq 'Restarting') {
         Write-Log "Adapter '$AdapterName' is already restarting." -Level Warning
         return $false
