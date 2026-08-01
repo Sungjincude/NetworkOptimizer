@@ -28,13 +28,13 @@ function Initialize-Logger {
     $logFile = Join-Path $LogPath "NetworkOptimizer_$timestamp.log"
     $script:logFilePath = $logFile
 
-    # Write the header (only on first initialization)
+    # Write the header only if the file does not exist
     if (-not (Test-Path $logFile)) {
         $header = "=== Network Optimizer Log ===`r`nStarted at $(Get-Date)`r`n"
         $header | Out-File -FilePath $logFile -Encoding utf8
     }
 
-    # Use Write-Host for user feedback (does not pollute output stream)
+    # Use Write-Host so this does not pollute the output stream
     Write-Host "Log file: $logFile" -ForegroundColor Gray
     return $logFile
 }
@@ -55,22 +55,23 @@ function Write-Log {
         [string]$Level = 'Info'
     )
 
+    # Ensure logging is initialized
     if (-not $script:logFilePath) {
-        # Call Initialize-Logger without capturing its output
+        # Fallback: initialize with a temp location
         Initialize-Logger -LogPath "$env:TEMP\NetworkOptimizer\Logs"
     }
 
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
     $entry = "[$timestamp] [$Level] $Message"
 
-    # Console output
+    # Console output with color
     switch ($Level) {
         'Info'    { Write-Host $entry -ForegroundColor White }
         'Warning' { Write-Host $entry -ForegroundColor Yellow }
         'Error'   { Write-Host $entry -ForegroundColor Red }
     }
 
-    # Append to log file
+    # Append to log file (with error handling)
     try {
         Add-Content -Path $script:logFilePath -Value $entry -ErrorAction Stop
     } catch {
