@@ -15,8 +15,6 @@
     If used with -Preset, specifies which adapter to target (name or part of name).
 .PARAMETER Transcript
     Enables PowerShell transcript logging to the log directory.
-.PARAMETER Verbose
-    Enables verbose output for detailed diagnostic information.
 .EXAMPLE
     .\Core.ps1 -Silent -Preset Gaming -AdapterName Ethernet
 .EXAMPLE
@@ -32,8 +30,7 @@ param(
     [string]$LogPath,
     [string]$Preset,
     [string]$AdapterName,
-    [switch]$Transcript,
-    [switch]$Verbose
+    [switch]$Transcript
 )
 
 #Requires -Version 5.1
@@ -155,8 +152,10 @@ function Initialize-SystemInfo {
     } catch {
         $script:windowsVersion = [Environment]::OSVersion.Version.ToString()
     }
-    Write-Verbose "Windows Version: $script:windowsVersion"
-    Write-Verbose "PowerShell Version: $script:psVersion"
+    if ($VerbosePreference -eq 'Continue') {
+        Write-Verbose "Windows Version: $script:windowsVersion"
+        Write-Verbose "PowerShell Version: $script:psVersion"
+    }
 }
 
 function Update-CachedAdapterInfo {
@@ -186,7 +185,9 @@ function Update-CachedAdapterInfo {
     $script:cachedDriverDate = $info.DriverDate
     $script:cachedLinkSpeed = $info.LinkSpeed
     $script:cachedInterfaceDescription = $info.InterfaceDescription
-    Write-Verbose "Cached adapter info: Vendor=$script:cachedVendor, Driver=$script:cachedDriverVersion"
+    if ($VerbosePreference -eq 'Continue') {
+        Write-Verbose "Cached adapter info: Vendor=$script:cachedVendor, Driver=$script:cachedDriverVersion"
+    }
 }
 
 function Build-PropertyLookupTable {
@@ -315,19 +316,19 @@ function Wait-AdapterUp {
         [int]$TimeoutSeconds = 30
     )
     Write-Log "Waiting for adapter '$AdapterName' to become 'Up'..." -Level Info
-    Write-Verbose "Waiting for adapter '$AdapterName' to become operational."
+    if ($VerbosePreference -eq 'Continue') { Write-Verbose "Waiting for adapter '$AdapterName' to become operational." }
     $start = Get-Date
     do {
         $adapter = Get-NetAdapter -Name $AdapterName -ErrorAction SilentlyContinue
         if ($adapter -and $adapter.Status -eq 'Up' -and $adapter.OperationalStatus -eq 'Up') {
             Write-Log "Adapter is up after $([math]::Round(((Get-Date)-$start).TotalSeconds,1)) seconds." -Level Info
-            Write-Verbose "Adapter $AdapterName is up and operational."
+            if ($VerbosePreference -eq 'Continue') { Write-Verbose "Adapter $AdapterName is up and operational." }
             return $true
         }
         Start-Sleep -Milliseconds 500
     } while (((Get-Date)-$start).TotalSeconds -lt $TimeoutSeconds)
     Write-Log "Timeout waiting for adapter to become 'Up'." -Level Error
-    Write-Verbose "Adapter $AdapterName did not become up within $TimeoutSeconds seconds."
+    if ($VerbosePreference -eq 'Continue') { Write-Verbose "Adapter $AdapterName did not become up within $TimeoutSeconds seconds." }
     return $false
 }
 
@@ -392,7 +393,7 @@ function Log-Exception {
         $msg += ", Inner=$($Exception.InnerException.Message)"
     }
     Write-Log $msg -Level Error
-    if ($Verbose) {
+    if ($VerbosePreference -eq 'Continue') {
         Write-Verbose "Stack trace: $($Exception.StackTrace)"
     }
 }
@@ -494,21 +495,21 @@ function Apply-Preset {
 
     $adapterName = $Adapter.Name
     Write-Log "Applying preset '$PresetName' to adapter '$adapterName'" -Level Info
-    Write-Verbose "Preset '$PresetName' selected for adapter '$adapterName'."
+    if ($VerbosePreference -eq 'Continue') { Write-Verbose "Preset '$PresetName' selected for adapter '$adapterName'." }
 
     # Get all advanced properties for the adapter
     $properties = Get-NetAdapterAdvancedProperty -Name $adapterName -ErrorAction Stop
-    Write-Verbose "Retrieved $($properties.Count) advanced properties."
+    if ($VerbosePreference -eq 'Continue') { Write-Verbose "Retrieved $($properties.Count) advanced properties." }
 
     # Build lookup table for fast property resolution
     $script:propertyLookup = Build-PropertyLookupTable -Properties $properties
-    Write-Verbose "Property lookup table built with $($script:propertyLookup.Count) entries."
+    if ($VerbosePreference -eq 'Continue') { Write-Verbose "Property lookup table built with $($script:propertyLookup.Count) entries." }
 
     # Backup before applying
     $backupFile = Backup-AdapterSettings -AdapterName $adapterName -Properties $properties
     if ($backupFile) {
         Write-Log "Backup saved to $backupFile" -Level Info
-        Write-Verbose "Backup file: $backupFile"
+        if ($VerbosePreference -eq 'Continue') { Write-Verbose "Backup file: $backupFile" }
     }
 
     # Get the preset definition
@@ -527,7 +528,7 @@ function Apply-Preset {
         $prop = Resolve-Property -PropertyName $key -UseCache
         if ($prop) { $supportedCount++ }
     }
-    Write-Verbose "Supported properties count: $supportedCount out of $($presetKeys.Count) in preset."
+    if ($VerbosePreference -eq 'Continue') { Write-Verbose "Supported properties count: $supportedCount out of $($presetKeys.Count) in preset." }
 
     # Confirmation
     if (-not (Confirm-PresetApplication -AdapterName $adapterName -PresetName $PresetName -Count $supportedCount)) {
@@ -554,7 +555,7 @@ function Apply-Preset {
         $prop = Resolve-Property -PropertyName $key -UseCache
         if (-not $prop) {
             Write-Log "Property '$key' not supported on this adapter. Skipping." -Level Warning
-            Write-Verbose "Property '$key' not found in lookup table."
+            if ($VerbosePreference -eq 'Continue') { Write-Verbose "Property '$key' not found in lookup table." }
             $results += [PSCustomObject]@{
                 Property      = $key
                 OldValue      = $null
@@ -568,7 +569,7 @@ function Apply-Preset {
 
         $keyword = $prop.RegistryKeyword
         $oldValue = $prop.RegistryValue
-        Write-Verbose "Resolved '$key' to keyword '$keyword', current value '$oldValue'."
+        if ($VerbosePreference -eq 'Continue') { Write-Verbose "Resolved '$key' to keyword '$keyword', current value '$oldValue'." }
 
         # Validate value if possible
         $validValues = $prop.ValidRegistryValues
@@ -586,7 +587,7 @@ function Apply-Preset {
             }
             if (-not $found) {
                 Write-Log "Value '$desiredValue' is not in valid list for '$keyword'. Skipping." -Level Warning
-                Write-Verbose "Value '$desiredValue' not in valid values: $($validValues -join ', ')"
+                if ($VerbosePreference -eq 'Continue') { Write-Verbose "Value '$desiredValue' not in valid values: $($validValues -join ', ')" }
                 $results += [PSCustomObject]@{
                     Property      = $key
                     OldValue      = $oldValue
@@ -598,7 +599,7 @@ function Apply-Preset {
                 continue
             }
         } else {
-            Write-Verbose "No validation info available for '$keyword'; attempting change."
+            if ($VerbosePreference -eq 'Continue') { Write-Verbose "No validation info available for '$keyword'; attempting change." }
         }
 
         # Attempt to set
@@ -633,11 +634,11 @@ function Apply-Preset {
                 $reason = ""
                 $successCount++
                 $restartRequired = $true
-                Write-Verbose "Successfully set '$keyword' to '$desiredValue'."
+                if ($VerbosePreference -eq 'Continue') { Write-Verbose "Successfully set '$keyword' to '$desiredValue'." }
             } else {
                 $status = "FAILED"
                 $reason = "Value mismatch after set: expected '$desiredValue', got '$($newProp.RegistryValue)'"
-                Write-Verbose "Validation failed: expected normalized '$desiredNormalized', got '$actualNormalized'."
+                if ($VerbosePreference -eq 'Continue') { Write-Verbose "Validation failed: expected normalized '$desiredNormalized', got '$actualNormalized'." }
             }
         } else {
             $status = "FAILED"
@@ -810,7 +811,9 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 Initialize-SystemInfo
 $script:logFilePath = Initialize-LoggerEx
 Write-Log "=== Network Optimizer started ===" -Level Info
-Write-Verbose "Script started with parameters: Silent=$Silent, LogPath=$LogPath, Preset=$Preset, AdapterName=$AdapterName, Transcript=$Transcript, Verbose=$Verbose"
+if ($VerbosePreference -eq 'Continue') {
+    Write-Verbose "Script started with parameters: Silent=$Silent, LogPath=$LogPath, Preset=$Preset, AdapterName=$AdapterName, Transcript=$Transcript"
+}
 
 # Initial adapter selection
 $physical = Get-PhysicalNetworkAdapters -IncludeActiveOnly
