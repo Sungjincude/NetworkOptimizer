@@ -124,7 +124,8 @@ function Initialize-LoggerEx {
     $script:logFilePath = $logFile
     $header = "=== Network Optimizer Log ===`r`nStarted at $(Get-Date)`r`n"
     $header | Out-File -FilePath $logFile -Encoding utf8 -ErrorAction SilentlyContinue
-    Write-Output "Log file: $logFile"
+    # FIX: Use Write-Host instead of Write-Output to avoid polluting the return stream
+    Write-Host "Log file: $logFile" -ForegroundColor Gray
 
     # Start transcript if requested
     if ($Transcript) {
@@ -443,8 +444,10 @@ function Select-Adapter {
         return $null
     }
 
-    if ($adapters.Count -eq 1) {
-        $adapter = $adapters[0]
+    # FIX: Force $adapters to be treated as an array so .Count works reliably
+    $adapterArray = @($adapters)
+    if ($adapterArray.Count -eq 1) {
+        $adapter = $adapterArray[0]
         Write-Host "Auto-selected the only active physical adapter: $($adapter.Name)" -ForegroundColor Green
         return $adapter
     }
@@ -452,15 +455,15 @@ function Select-Adapter {
     Write-Host "Multiple active physical adapters found. Please select one:" -ForegroundColor Cyan
     $i = 1
     $adapterList = @()
-    foreach ($adapter in $adapters) {
+    foreach ($adapter in $adapterArray) {
         $status = if ($adapter.Status -eq 'Up') { 'Up' } else { 'Down' }
         Write-Host "$i. $($adapter.Name) - $($adapter.InterfaceDescription) [$status]"
         $adapterList += $adapter
         $i++
     }
-    Write-Host "Enter number (1-$($adapters.Count)): " -NoNewline
+    Write-Host "Enter number (1-$($adapterArray.Count)): " -NoNewline
     $choice = Read-Host
-    if ($choice -match '^\d+$' -and [int]$choice -ge 1 -and [int]$choice -le $adapters.Count) {
+    if ($choice -match '^\d+$' -and [int]$choice -ge 1 -and [int]$choice -le $adapterArray.Count) {
         return $adapterList[[int]$choice - 1]
     }
     Write-Warning "Invalid selection."
@@ -818,8 +821,10 @@ if ($VerbosePreference -eq 'Continue') {
 # Initial adapter selection
 $physical = Get-PhysicalNetworkAdapters -IncludeActiveOnly
 if ($physical) {
-    if ($physical.Count -eq 1) {
-        $script:selectedAdapter = $physical[0]
+    # Force array to handle single-object case correctly
+    $physicalArray = @($physical)
+    if ($physicalArray.Count -eq 1) {
+        $script:selectedAdapter = $physicalArray[0]
         Write-Log "Auto-selected adapter: $($script:selectedAdapter.Name)" -Level Info
         Write-Host "Auto-selected the only active physical adapter: $($script:selectedAdapter.Name)" -ForegroundColor Green
         Update-CachedAdapterInfo
