@@ -124,7 +124,7 @@ function Initialize-LoggerEx {
     $script:logFilePath = $logFile
     $header = "=== Network Optimizer Log ===`r`nStarted at $(Get-Date)`r`n"
     $header | Out-File -FilePath $logFile -Encoding utf8 -ErrorAction SilentlyContinue
-    # FIX: Use Write-Host instead of Write-Output to avoid polluting the return stream
+    # Use Write-Host to avoid polluting the output stream
     Write-Host "Log file: $logFile" -ForegroundColor Gray
 
     # Start transcript if requested
@@ -444,7 +444,6 @@ function Select-Adapter {
         return $null
     }
 
-    # FIX: Force $adapters to be treated as an array so .Count works reliably
     $adapterArray = @($adapters)
     if ($adapterArray.Count -eq 1) {
         $adapter = $adapterArray[0]
@@ -527,7 +526,6 @@ function Apply-Preset {
     $supportedCount = 0
     $presetKeys = @($preset.Keys)
     foreach ($key in $presetKeys) {
-        # Use lookup if possible
         $prop = Resolve-Property -PropertyName $key -UseCache
         if ($prop) { $supportedCount++ }
     }
@@ -554,7 +552,6 @@ function Apply-Preset {
         $desiredValue = $preset[$key]
         Write-Progress -Activity "Applying Preset '$PresetName'" -Status "Processing $key" -PercentComplete (($currentStep / $totalSteps) * 100) -CurrentOperation "Property: $key"
 
-        # Resolve property using cached lookup
         $prop = Resolve-Property -PropertyName $key -UseCache
         if (-not $prop) {
             Write-Log "Property '$key' not supported on this adapter. Skipping." -Level Warning
@@ -611,16 +608,16 @@ function Apply-Preset {
             Set-NetAdapterAdvancedProperty -Name $adapterName -RegistryKeyword $keyword -RegistryValue $desiredValue -ErrorAction Stop
             $success = $true
         } catch [System.UnauthorizedAccessException] {
-            Log-Exception -Exception $_ -Property $key -RegistryKeyword $keyword -AdapterName $adapterName -RequestedValue $desiredValue
+            Log-Exception -Exception $_.Exception -Property $key -RegistryKeyword $keyword -AdapterName $adapterName -RequestedValue $desiredValue
             $success = $false
         } catch [System.InvalidOperationException] {
-            Log-Exception -Exception $_ -Property $key -RegistryKeyword $keyword -AdapterName $adapterName -RequestedValue $desiredValue
+            Log-Exception -Exception $_.Exception -Property $key -RegistryKeyword $keyword -AdapterName $adapterName -RequestedValue $desiredValue
             $success = $false
         } catch [Microsoft.Management.Infrastructure.CimException] {
-            Log-Exception -Exception $_ -Property $key -RegistryKeyword $keyword -AdapterName $adapterName -RequestedValue $desiredValue
+            Log-Exception -Exception $_.Exception -Property $key -RegistryKeyword $keyword -AdapterName $adapterName -RequestedValue $desiredValue
             $success = $false
         } catch {
-            Log-Exception -Exception $_ -Property $key -RegistryKeyword $keyword -AdapterName $adapterName -RequestedValue $desiredValue
+            Log-Exception -Exception $_.Exception -Property $key -RegistryKeyword $keyword -AdapterName $adapterName -RequestedValue $desiredValue
             $success = $false
         }
         $elapsed = (Get-Date) - $start
@@ -628,7 +625,6 @@ function Apply-Preset {
         # Validate
         if ($success) {
             $newProp = Get-NetAdapterAdvancedProperty -Name $adapterName -RegistryKeyword $keyword -ErrorAction SilentlyContinue
-            # Normalize both for comparison
             $oldNormalized = Normalize-Value $oldValue
             $desiredNormalized = Normalize-Value $desiredValue
             $actualNormalized = Normalize-Value $newProp.RegistryValue
@@ -682,7 +678,6 @@ function Apply-Preset {
         if (Test-AdapterState -AdapterName $adapterName) {
             try {
                 Restart-NetAdapter -Name $adapterName -Confirm:$false -ErrorAction Stop
-                # Wait for adapter to come up
                 if (Wait-AdapterUp -AdapterName $adapterName) {
                     Write-Host "Adapter restarted successfully and is up." -ForegroundColor Green
                 } else {
@@ -690,7 +685,7 @@ function Apply-Preset {
                     $script:exitCode = 4
                 }
             } catch {
-                Log-Exception -Exception $_ -AdapterName $adapterName
+                Log-Exception -Exception $_.Exception -AdapterName $adapterName
                 Write-Host "Failed to restart adapter. Please restart manually." -ForegroundColor Red
                 $script:exitCode = 1
             }
@@ -702,37 +697,19 @@ function Apply-Preset {
         Write-Host "No changes applied; adapter restart skipped." -ForegroundColor Gray
     }
 
-    # Display reboot warning if applicable
     if ($successCount -gt 0) {
         Write-Host "`nNote: Some network driver changes may require a system reboot to take full effect." -ForegroundColor Yellow
         Write-Log "Reboot may be required for some changes." -Level Warning
     }
 
-    # Set exit code based on results
     if ($successCount -gt 0 -and $script:exitCode -eq 0) {
         $script:exitCode = 0
     } elseif ($successCount -eq 0 -and $results.Count -gt 0) {
-        $script:exitCode = 4  # No successful changes
+        $script:exitCode = 4
     }
 }
 
 function Resolve-Property {
-    <#
-    .SYNOPSIS
-        Resolves a property name (alias, display name, or registry keyword) to a property object.
-    .DESCRIPTION
-        Uses a cached lookup table if available (built per adapter) for O(1) performance.
-        If -UseCache is not specified or lookup fails, falls back to scanning the provided Properties array.
-    .PARAMETER Properties
-        Array of advanced property objects (from Get-NetAdapterAdvancedProperty).
-        Required if -UseCache is $false.
-    .PARAMETER PropertyName
-        The name to resolve (alias, display name, or registry keyword).
-    .PARAMETER UseCache
-        If $true, uses the global $script:propertyLookup table (must be built earlier).
-    .OUTPUTS
-        The matching property object, or $null if not found.
-    #>
     param(
         [array]$Properties,
         [Parameter(Mandatory)]
@@ -744,7 +721,6 @@ function Resolve-Property {
         if ($script:propertyLookup.ContainsKey($PropertyName)) {
             return $script:propertyLookup[$PropertyName]
         }
-        # Also check aliases from VendorMappings
         $aliases = Get-PropertyAliases
         foreach ($key in $aliases.Keys) {
             if ($aliases[$key] -contains $PropertyName) {
@@ -756,28 +732,23 @@ function Resolve-Property {
         return $null
     }
 
-    # Fallback to scanning (legacy)
     if (-not $Properties) {
         Write-Error "Properties array required when not using cache."
         return $null
     }
 
-    # Exact match on RegistryKeyword
     $match = $Properties | Where-Object { $_.RegistryKeyword -eq $PropertyName }
     if ($match) { return $match }
 
-    # Exact match on DisplayName
     $match = $Properties | Where-Object { $_.DisplayName -ieq $PropertyName }
     if ($match) { return $match }
 
-    # Try alias resolution
     $aliases = Get-PropertyAliases
     $candidates = $aliases[$PropertyName]
     if ($candidates) {
         foreach ($alias in $candidates) {
             $match = $Properties | Where-Object { $_.RegistryKeyword -eq $alias }
             if ($match) { return $match }
-            # Wildcard match if alias contains '*'
             if ($alias -like "*") {
                 $match = $Properties | Where-Object { $_.RegistryKeyword -like $alias }
                 if ($match) { return $match }
@@ -788,10 +759,6 @@ function Resolve-Property {
 }
 
 function Show-CurrentSettings {
-    <#
-    .SYNOPSIS
-        Displays all advanced properties of the selected adapter.
-    #>
     if (-not $script:selectedAdapter) {
         Write-Error "No adapter selected."
         return
@@ -802,15 +769,12 @@ function Show-CurrentSettings {
 #endregion
 
 #region Main Execution
-
-# Ensure admin
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Error "This script must be run as Administrator."
     $script:exitCode = 1
     exit $script:exitCode
 }
 
-# Initialize logging and system info
 Initialize-SystemInfo
 $script:logFilePath = Initialize-LoggerEx
 Write-Log "=== Network Optimizer started ===" -Level Info
@@ -818,10 +782,8 @@ if ($VerbosePreference -eq 'Continue') {
     Write-Verbose "Script started with parameters: Silent=$Silent, LogPath=$LogPath, Preset=$Preset, AdapterName=$AdapterName, Transcript=$Transcript"
 }
 
-# Initial adapter selection
 $physical = Get-PhysicalNetworkAdapters -IncludeActiveOnly
 if ($physical) {
-    # Force array to handle single-object case correctly
     $physicalArray = @($physical)
     if ($physicalArray.Count -eq 1) {
         $script:selectedAdapter = $physicalArray[0]
@@ -829,7 +791,6 @@ if ($physical) {
         Write-Host "Auto-selected the only active physical adapter: $($script:selectedAdapter.Name)" -ForegroundColor Green
         Update-CachedAdapterInfo
     } else {
-        # If more than one, show selection menu immediately
         $adapter = Select-Adapter
         if ($adapter) {
             $script:selectedAdapter = $adapter
@@ -842,13 +803,10 @@ if ($physical) {
     $script:exitCode = 3
 }
 
-# Handle command-line preset mode
 if ($Preset -and $script:selectedAdapter) {
-    # If AdapterName specified, try to match
     if ($AdapterName) {
         $target = Get-NetAdapter -Name $AdapterName -ErrorAction SilentlyContinue
         if (-not $target) {
-            # Try partial match
             $target = Get-NetAdapter | Where-Object { $_.Name -like "*$AdapterName*" -or $_.InterfaceDescription -like "*$AdapterName*" } | Select-Object -First 1
         }
         if ($target) {
@@ -866,7 +824,6 @@ if ($Preset -and $script:selectedAdapter) {
     exit $script:exitCode
 }
 
-# If no adapter selected, exit
 if (-not $script:selectedAdapter) {
     Write-Error "No adapter selected. Exiting."
     $script:exitCode = 3
@@ -874,7 +831,6 @@ if (-not $script:selectedAdapter) {
     exit $script:exitCode
 }
 
-# Main interactive loop
 do {
     Show-Menu
     $choice = Read-Host
@@ -905,7 +861,7 @@ do {
                 Write-Log "Selected adapter: $($adapter.Name)" -Level Info
                 Update-CachedAdapterInfo
                 $script:lastAppliedPreset = $null
-                $script:propertyLookup = $null  # Invalidate cache
+                $script:propertyLookup = $null
             }
         }
         '8' { Write-Host "Exiting."; break }
@@ -916,7 +872,6 @@ do {
     }
 } while ($choice -ne '8')
 
-# Cleanup
 if ($Transcript) {
     Stop-Transcript -ErrorAction SilentlyContinue
 }
