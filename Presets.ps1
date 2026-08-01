@@ -12,28 +12,28 @@ function Get-Preset {
     )
     $presets = @{
         "Gaming" = @{
-            # Low latency
-            "InterruptModeration"  = "Disabled"
-            "FlowControl"          = "Disabled"
-            "LsoV2IPv4"            = "Disabled"
-            "LsoV2IPv6"            = "Disabled"
-            "RscIPv4"              = "Disabled"
-            "RscIPv6"              = "Disabled"
-            "EEE"                  = "Disabled"
-            "GreenEthernet"        = "Disabled"
-            "PacketCoalescing"     = "Disabled"
-            "AdaptiveIFS"          = "Disabled"
-            "RSS"                  = "Enabled"
-            "NumRssQueues"         = "128"        # Changed from 16 to 128 (valid range: 32‑128, inc 8)
-            "ReceiveBuffers"       = "2048"       # Increased from 1024
-            "TransmitBuffers"      = "2048"       # Increased from 1024
-            "WakeOnMagicPacket"    = "Disabled"
-            "WakeOnPattern"        = "Disabled"
-            "ShutdownWakeOnLan"    = "Disabled"
+            # Low latency – use numeric values where expected
+            "InterruptModeration"  = "0"          # Disabled
+            "FlowControl"          = "0"          # Disabled
+            "LsoV2IPv4"            = "0"          # Disabled
+            "LsoV2IPv6"            = "0"          # Disabled
+            "RscIPv4"              = "0"          # Disabled
+            "RscIPv6"              = "0"          # Disabled
+            "EEE"                  = "0"          # Disabled (if supported)
+            "GreenEthernet"        = "0"          # Disabled
+            "PacketCoalescing"     = "0"          # Disabled
+            "AdaptiveIFS"          = "0"          # Disabled
+            "RSS"                  = "Enabled"    # Enable if supported
+            "NumRssQueues"         = "128"        # Max for Intel; will skip if not supported
+            "ReceiveBuffers"       = "512"        # Max for Realtek (32‑512)
+            "TransmitBuffers"      = "128"        # Max for Realtek (32‑128)
+            "WakeOnMagicPacket"    = "0"          # Disabled
+            "WakeOnPattern"        = "0"          # Disabled
+            "ShutdownWakeOnLan"    = "0"          # Disabled
         }
         "Balanced" = @{
             "RSS"                  = "Enabled"
-            "InterruptModeration"  = "Enabled"
+            "InterruptModeration"  = "Enabled"    # May be string or numeric; validation will handle
         }
         "Throughput" = @{
             "JumboPacket"          = "9014"
@@ -42,13 +42,13 @@ function Get-Preset {
             "InterruptModeration"  = "Enabled"
             "RSS"                  = "Enabled"
             "NumRssQueues"         = "128"
-            "ReceiveBuffers"       = "2048"
-            "TransmitBuffers"      = "2048"
+            "ReceiveBuffers"       = "512"
+            "TransmitBuffers"      = "128"
             "RscIPv4"              = "Enabled"
             "RscIPv6"              = "Enabled"
             "FlowControl"          = "Enabled"
-            "EEE"                  = "Disabled"
-            "GreenEthernet"        = "Disabled"
+            "EEE"                  = "0"
+            "GreenEthernet"        = "0"
         }
     }
 
