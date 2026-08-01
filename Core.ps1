@@ -113,7 +113,6 @@ function Initialize-LoggerEx {
 
     $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
     $logFile = Join-Path $basePath "NetworkOptimizer_$timestamp.log"
-    # Set the global log path – single string, not array
     $script:logFilePath = $logFile
     $header = "=== Network Optimizer Log ===`r`nStarted at $(Get-Date)`r`n"
     $header | Out-File -FilePath $logFile -Encoding utf8 -ErrorAction SilentlyContinue
@@ -214,7 +213,7 @@ function Normalize-Value {
     if ($str -match '^\d+$') { return [int]$str }
     $lower = $str.ToLower()
     if ($lower -in @('true','false','0','1')) {
-        # PowerShell 5.1 compatible: use if/else instead of ternary
+        # PowerShell 5.1 compatible: if/else instead of ternary
         if ($lower -eq 'true' -or $lower -eq '1') {
             return 'true'
         } else {
@@ -242,20 +241,28 @@ function Confirm-PresetApplication {
 function Wait-AdapterUp {
     param(
         [string]$AdapterName,
-        [int]$TimeoutSeconds = 30
+        [int]$TimeoutSeconds = 60
     )
     Write-Log "Waiting for adapter '$AdapterName' to become 'Up'..." -Level Info
-    if ($VerbosePreference -eq 'Continue') { Write-Verbose "Waiting for adapter '$AdapterName' to become operational." }
+    Write-Host "Waiting for adapter..." -NoNewline
     $start = Get-Date
+    $lastDot = $start
     do {
         $adapter = Get-NetAdapter -Name $AdapterName -ErrorAction SilentlyContinue
         if ($adapter -and $adapter.Status -eq 'Up' -and $adapter.OperationalStatus -eq 'Up' -and $adapter.NetEnabled -eq $true) {
+            Write-Host " Done." -ForegroundColor Green
             Write-Log "Adapter is up after $([math]::Round(((Get-Date)-$start).TotalSeconds,1)) seconds." -Level Info
             if ($VerbosePreference -eq 'Continue') { Write-Verbose "Adapter $AdapterName is up and operational." }
             return $true
         }
+        # Show progress dot every 2 seconds
+        if ((Get-Date) - $lastDot -gt [TimeSpan]::FromSeconds(2)) {
+            Write-Host "." -NoNewline
+            $lastDot = Get-Date
+        }
         Start-Sleep -Milliseconds 500
     } while (((Get-Date)-$start).TotalSeconds -lt $TimeoutSeconds)
+    Write-Host " Timeout." -ForegroundColor Red
     Write-Log "Timeout waiting for adapter to become 'Up'." -Level Error
     if ($VerbosePreference -eq 'Continue') { Write-Verbose "Adapter $AdapterName did not become up within $TimeoutSeconds seconds." }
     return $false
@@ -505,13 +512,13 @@ function Apply-Preset {
     if ($restartRequired) {
         Write-Log "Restarting adapter '$adapterName' to apply changes..." -Level Info
         Write-Host "Restarting adapter..." -ForegroundColor Yellow
-        # Attempt restart regardless of current state – we'll catch any error
+        # Attempt restart regardless of current state – catch errors
         try {
             Restart-NetAdapter -Name $adapterName -Confirm:$false -ErrorAction Stop
             if (Wait-AdapterUp -AdapterName $adapterName) {
                 Write-Host "Adapter restarted successfully and is up." -ForegroundColor Green
             } else {
-                Write-Warning "Adapter restart completed but did not return to 'Up' within 30 seconds. A system reboot may be required."
+                Write-Warning "Adapter restart completed but did not return to 'Up' within 60 seconds. A system reboot may be required."
                 $script:exitCode = 4
             }
         } catch {
