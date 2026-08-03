@@ -504,6 +504,7 @@ function Apply-Preset {
     Write-Host "`nPreset application summary:" -ForegroundColor Cyan
     $results | Format-Table -Property Property, OldValue, NewValue, Status, Reason, ElapsedMs -AutoSize
 
+    # Update the preset display before any restart decisions
     if ($successCount -gt 0) {
         $script:lastAppliedPreset = $PresetName
     }
@@ -516,7 +517,7 @@ function Apply-Preset {
         Write-Host "Choose an action:" -ForegroundColor Cyan
         Write-Host "  1) Restart adapter now (may temporarily disconnect network)" -ForegroundColor White
         Write-Host "  2) Restart computer now (recommended for full effect)" -ForegroundColor White
-        Write-Host "  3) Postpone and exit (close PowerShell)" -ForegroundColor White
+        Write-Host "  3) Postpone and close this window" -ForegroundColor White
         Write-Host ""
         $restartChoice = Read-Host "Enter choice (1, 2, or 3)"
 
@@ -551,19 +552,19 @@ function Apply-Preset {
                     Write-Host "Please restart manually." -ForegroundColor Yellow
                     $script:exitCode = 1
                 }
-                # The script will exit after restart command; we can exit here to be safe
+                # Exit after restart command
                 exit 0
             }
             '3' {
-                Write-Log "User postponed restart and chose to exit." -Level Info
-                Write-Host "Restart postponed. The script will now exit. Please restart your computer later for changes to take full effect." -ForegroundColor Yellow
-                # Exit the script immediately
-                exit 0
+                Write-Log "User postponed restart and chose to close the window." -Level Info
+                Write-Host "Restart postponed. The script will now close. Please restart your computer later for changes to take full effect." -ForegroundColor Yellow
+                # Forcefully terminate the PowerShell process
+                [Environment]::Exit(0)
             }
             default {
                 Write-Log "Invalid choice, defaulting to postpone and exit." -Level Warning
-                Write-Host "Invalid choice. No restart will be performed. Exiting. Please restart manually later." -ForegroundColor Yellow
-                exit 0
+                Write-Host "Invalid choice. No restart will be performed. Closing." -ForegroundColor Yellow
+                [Environment]::Exit(0)
             }
         }
     } else {
