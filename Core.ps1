@@ -241,7 +241,7 @@ function Confirm-PresetApplication {
 function Wait-AdapterUp {
     param(
         [string]$AdapterName,
-        [int]$TimeoutSeconds = 60
+        [int]$TimeoutSeconds = 90
     )
     Write-Log "Waiting for adapter '$AdapterName' to become 'Up'..." -Level Info
     Write-Host "Waiting for adapter..." -NoNewline
@@ -508,23 +508,58 @@ function Apply-Preset {
         $script:lastAppliedPreset = $PresetName
     }
 
-    # --- RESTART LOGIC ---
+    # --- User‑controlled restart logic ---
     if ($restartRequired) {
-        Write-Log "Restarting adapter '$adapterName' to apply changes..." -Level Info
-        Write-Host "Restarting adapter..." -ForegroundColor Yellow
-        # Attempt restart regardless of current state – catch errors
-        try {
-            Restart-NetAdapter -Name $adapterName -Confirm:$false -ErrorAction Stop
-            if (Wait-AdapterUp -AdapterName $adapterName) {
-                Write-Host "Adapter restarted successfully and is up." -ForegroundColor Green
-            } else {
-                Write-Warning "Adapter restart completed but did not return to 'Up' within 60 seconds. A system reboot may be required."
-                $script:exitCode = 4
+        Write-Host "`nNetwork changes applied successfully." -ForegroundColor Green
+        Write-Host "To complete optimization, the adapter must be reset." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Choose an action:" -ForegroundColor Cyan
+        Write-Host "  1) Restart adapter now (may temporarily disconnect network)" -ForegroundColor White
+        Write-Host "  2) Restart computer now (recommended for full effect)" -ForegroundColor White
+        Write-Host "  3) Postpone - I will restart manually later" -ForegroundColor White
+        Write-Host ""
+        $restartChoice = Read-Host "Enter choice (1, 2, or 3)"
+
+        switch ($restartChoice) {
+            '1' {
+                Write-Log "User chose to restart adapter." -Level Info
+                Write-Host "Restarting adapter..." -ForegroundColor Yellow
+                try {
+                    Restart-NetAdapter -Name $adapterName -Confirm:$false -ErrorAction Stop
+                    if (Wait-AdapterUp -AdapterName $adapterName -TimeoutSeconds 90) {
+                        Write-Host "Adapter restarted successfully and is up." -ForegroundColor Green
+                    } else {
+                        Write-Warning "Adapter did not return to 'Up' within 90 seconds. A system reboot may be required."
+                        $script:exitCode = 4
+                    }
+                } catch {
+                    Log-Exception -Exception $_.Exception -AdapterName $adapterName
+                    Write-Host "Failed to restart adapter. Please restart manually." -ForegroundColor Red
+                    $script:exitCode = 1
+                }
             }
-        } catch {
-            Log-Exception -Exception $_.Exception -AdapterName $adapterName
-            Write-Host "Failed to restart adapter. Please restart manually." -ForegroundColor Red
-            $script:exitCode = 1
+            '2' {
+                Write-Log "User chose to restart computer." -Level Info
+                Write-Host "System will restart in 10 seconds. Press Ctrl+C to cancel." -ForegroundColor Red
+                Start-Sleep -Seconds 10
+                try {
+                    Restart-Computer -Force -ErrorAction Stop
+                } catch {
+                    Log-Exception -Exception $_.Exception -AdapterName $adapterName
+                    Write-Host "Failed to initiate system restart: $_" -ForegroundColor Red
+                    Write-Host "Please restart manually." -ForegroundColor Yellow
+                    $script:exitCode = 1
+                }
+            }
+            '3' {
+                Write-Log "User postponed restart." -Level Info
+                Write-Host "Restart postponed. Please remember to restart your computer later for changes to take full effect." -ForegroundColor Yellow
+                # No restart, just exit
+            }
+            default {
+                Write-Log "Invalid choice, defaulting to postpone." -Level Warning
+                Write-Host "Invalid choice. No restart will be performed. Please restart manually later." -ForegroundColor Yellow
+            }
         }
     } else {
         Write-Log "No successful property changes; adapter restart not required." -Level Info
